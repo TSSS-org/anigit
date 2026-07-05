@@ -1,0 +1,67 @@
+# hi
+
+brainstorm.md
+
+# === Rust build artifacts ===
+/target/
+**/target/
+Cargo.lock.bak
+*.pdb
+
+# Uncomment if anigit ends up being a library other crates depend on
+# (keep Cargo.lock committed for binaries, ignore it for libraries):
+# Cargo.lock
+
+# === Editor / IDE ===
+.vscode/
+!.vscode/extensions.json
+.idea/
+*.iml
+.DS_Store
+*.swp
+*.swo
+
+# === OS junk ===
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# === Local env / secrets ===
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+secrets/
+config.local.toml
+
+# === anigit-specific local data (don't leak real watch history into the repo) ===
+# Default local repo data dir if you dev/test against a real local repo in-tree
+.anigit/
+*.anigit-test/
+/test-repos/
+/fixtures/local-only/
+
+# Local metadata cache (AniList API responses, local DB fallback dumps)
+/cache/
+/metadata-cache/
+*.sqlite
+*.sqlite3
+*.db
+
+# === Logs ===
+*.log
+logs/
+
+# === Packaging output (brew/npm/deb build artifacts) ===
+/dist/
+/release/
+*.deb
+*.tar.gz
+*.zip
+npm-package/anigit
+npm-package/anigit.exe
+
+# === Misc ===
+*.bak
+*.tmp
