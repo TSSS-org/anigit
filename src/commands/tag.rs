@@ -1,12 +1,26 @@
 use anyhow::{bail, Result};
+use std::env;
+
+use crate::repo::Repo;
 
 /// `anigit tag <name>` — create a tag at the current commit (e.g.
 /// "watched-100-shows", "2025-completed"). Milestone/flavor feature per
-/// brainstorm.md section 2 (Under Consideration) — not core v1, but stubbed
-/// here since it's cheap plumbing on top of the commit/ref model.
+/// brainstorm.md section 2 (Under Consideration) — cheap plumbing on top of
+/// the commit/ref model. Creation only; listing/deletion aren't part of the
+/// v1 CLI surface.
 pub fn run(name: &str) -> Result<()> {
-    // TODO: write a tag ref, similar shape to branch refs but under
-    // .anigit/refs/tags/<name> instead of refs/branches/<name>.
-    let _ = name;
-    bail!("anigit tag: not yet implemented")
+    let cwd = env::current_dir()?;
+    let repo = Repo::discover(&cwd)?;
+    let branch = repo.current_branch()?;
+
+    let Some(head) = repo.branch_head(&branch)? else {
+        bail!("cannot tag: branch '{branch}' has no commits yet");
+    };
+    repo.create_tag(name, &head)?;
+
+    println!(
+        "Created tag '{name}' at {}.",
+        &head[..head.len().min(11)]
+    );
+    Ok(())
 }

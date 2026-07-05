@@ -21,14 +21,50 @@ pub mod config;
 pub mod staging;
 
 use anyhow::{bail, Context, Result};
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use commit::Commit;
+use commit::{Commit, CommitAction};
 use config::RepoConfig;
 
 pub const ANIGIT_DIR: &str = ".anigit";
 const DEFAULT_BRANCH: &str = "main";
+
+/// One line of `.anigit/logs/HEAD` — a record of a branch ref moving.
+///
+/// The reflog is deliberately a single appended-to JSONL file, unlike
+/// `objects/commits/` (one file per commit, brainstorm.md 1.3a): it's an
+/// operational audit trail, not permanent content-addressed history — the
+/// same category reasoning as `.anigit/STAGED` being a single file (see
+/// `staging.rs`). Losing a reflog line loses debugging info, never history.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReflogEntry {
+    pub branch: String,
+    /// Where the ref pointed before, or `None` for a branch's first commit.
+    pub old_id: Option<String>,
+    pub new_id: String,
+    pub timestamp: DateTime<Utc>,
+    /// Why the ref moved: "commit", "amend", "merge", etc.
+    pub reason: String,
+}
+
+/// Ref names become file names directly under `.anigit/refs/`, so reject
+/// anything that could escape that directory or produce an unusable file.
+fn validate_ref_name(name: &str, kind: &str) -> Result<()> {
+    if name.is_empty()
+        || name == "."
+        || name == ".."
+        || name.contains('/')
+        || name.contains('\\')
+        || name.contains(char::is_whitespace)
+    {
+        bail!("invalid {kind} name: '{name}'");
+    }
+    Ok(())
+}
 
 pub struct Repo {
     /// Path to the `.anigit` directory itself (not the working directory).
@@ -113,11 +149,116 @@ impl Repo {
         }
     }
 
-    fn set_branch_head(&self, branch: &str, commit_id: &str) -> Result<()> {
-        fs::write(
-            self.root.join("refs").join("branches").join(branch),
-            commit_id,
-        )?;
+    /// Move a branch ref and record the move in the reflog. Every ref update
+    /// goes through here, so the reflog is a complete audit trail of where
+    /// each branch head has pointed.
+    fn set_branch_head(&self, branch: &str, commit_id: &str, reason: &str) -> Result<()> {
+        let path = self.root.join("refs").join("branches").join(branch);
+        // Read the old target defensively (the ref file may not exist yet
+        // when a new branch is being created).
+        let old_id = fs::read_to_string(&path)
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        fs::write(path, commit_id)?;
+        self.append_reflog(&ReflogEntry {
+            branch: branch.to_string(),
+            old_id,
+            new_id: commit_id.to_string(),
+            timestamp: Utc::now(),
+            reason: reason.to_string(),
+        })
+    }
+
+    fn append_reflog(&self, entry: &ReflogEntry) -> Result<()> {
+        let logs_dir = self.root.join("logs");
+        fs::create_dir_all(&logs_dir)?;
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(logs_dir.join("HEAD"))
+            .context("failed to open .anigit/logs/HEAD")?;
+        writeln!(file, "{}", serde_json::to_string(entry)?)?;
+        Ok(())
+    }
+
+    /// All reflog entries, oldest first (on-disk order). Empty if no ref has
+    /// ever moved (including repos created before the reflog existed).
+    pub fn read_reflog(&self) -> Result<Vec<ReflogEntry>> {
+        let path = self.root.join("logs").join("HEAD");
+        if !path.exists() {
+            return Ok(Vec::new());
+        }
+        let raw = fs::read_to_string(&path).context("failed to read .anigit/logs/HEAD")?;
+        raw.lines()
+            .filter(|line| !line.trim().is_empty())
+            .map(|line| serde_json::from_str(line).context("malformed .anigit/logs/HEAD entry"))
+            .collect()
+    }
+
+    /// Every branch that exists under `.anigit/refs/branches/`, sorted by
+    /// name. This is the branch-enumeration piece `log --graph` was missing
+    /// in part 2 of the build.
+    pub fn list_branches(&self) -> Result<Vec<String>> {
+        let dir = self.root.join("refs").join("branches");
+        let mut branches = Vec::new();
+        for entry in fs::read_dir(&dir).context("failed to read .anigit/refs/branches")? {
+            if let Some(name) = entry?.file_name().to_str() {
+                branches.push(name.to_string());
+            }
+        }
+        branches.sort();
+        Ok(branches)
+    }
+
+    pub fn branch_exists(&self, name: &str) -> bool {
+        self.root.join("refs").join("branches").join(name).is_file()
+    }
+
+    /// Create a new branch pointing at the current branch's head commit —
+    /// same as real git, the new branch starts as a copy of wherever you
+    /// are now.
+    pub fn create_branch(&self, name: &str) -> Result<()> {
+        validate_ref_name(name, "branch")?;
+        if self.branch_exists(name) {
+            bail!("branch '{name}' already exists");
+        }
+        match self.branch_head(&self.current_branch()?)? {
+            // Goes through set_branch_head so branch creation lands in the
+            // reflog like any other ref update — "where did this branch
+            // start" is exactly the kind of question the reflog answers.
+            Some(head) => self.set_branch_head(name, &head, "branch created")?,
+            // No commits yet: the new branch starts with an empty ref file,
+            // the same way `init` creates the default branch. No reflog
+            // entry — the ref isn't pointing at anything, so nothing moved.
+            None => fs::write(self.root.join("refs").join("branches").join(name), "")?,
+        }
+        Ok(())
+    }
+
+    /// Switch which branch HEAD points at. This only rewrites `.anigit/HEAD`
+    /// (which branch you're on) — it never moves any branch's commit
+    /// pointer; that's `set_branch_head`'s job.
+    pub fn set_current_branch(&self, name: &str) -> Result<()> {
+        if !self.branch_exists(name) {
+            bail!("no such branch: {name}");
+        }
+        fs::write(self.root.join("HEAD"), name)?;
+        Ok(())
+    }
+
+    /// Create a tag ref at `.anigit/refs/tags/<name>` pointing at `commit_id`.
+    /// Tags mark a specific point permanently (brainstorm.md section 2,
+    /// milestones), so unlike branches they are never silently overwritten.
+    pub fn create_tag(&self, name: &str, commit_id: &str) -> Result<()> {
+        validate_ref_name(name, "tag")?;
+        let dir = self.root.join("refs").join("tags");
+        fs::create_dir_all(&dir)?;
+        let path = dir.join(name);
+        if path.exists() {
+            bail!("tag '{name}' already exists — tags are permanent markers and can't be overwritten");
+        }
+        fs::write(path, commit_id)?;
         Ok(())
     }
 
@@ -135,7 +276,20 @@ impl Repo {
             bail!("commit {} already exists (id collision?)", commit.id);
         }
         fs::write(path, serde_json::to_string_pretty(commit)?)?;
-        self.set_branch_head(&commit.branch, &commit.id)?;
+
+        // Reflog reason, derived rather than passed in: a merge commit says
+        // so itself; a normal commit chains onto the old head; if the old
+        // head is NOT among the new commit's parents, the branch tip is
+        // being replaced sideways — that's an amend (see commands/commit.rs).
+        let old_head = self.branch_head(&commit.branch).ok().flatten();
+        let reason = match commit.action {
+            CommitAction::Merge => "merge",
+            CommitAction::Commit => match &old_head {
+                Some(h) if !commit.parent_ids.contains(h) => "amend",
+                _ => "commit",
+            },
+        };
+        self.set_branch_head(&commit.branch, &commit.id, reason)?;
         Ok(())
     }
 

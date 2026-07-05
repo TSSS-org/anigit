@@ -1,4 +1,7 @@
 use anyhow::{bail, Result};
+use std::env;
+
+use crate::repo::Repo;
 
 /// Shared implementation for `anigit checkout` and `anigit switch` — both
 /// commands are kept as real, separate commands (not one aliasing the
@@ -6,9 +9,24 @@ use anyhow::{bail, Result};
 /// behavior is identical: switch HEAD to `branch`, optionally creating it
 /// first if `create` (`-b` flag) is set.
 pub fn run(branch: &str, create: bool) -> Result<()> {
-    // TODO:
-    // - If create: same as `anigit branch <branch>` then switch to it.
-    // - Update .anigit/HEAD to point at `branch`.
-    let _ = (branch, create);
-    bail!("anigit checkout/switch: not yet implemented")
+    let cwd = env::current_dir()?;
+    let repo = Repo::discover(&cwd)?;
+
+    if create {
+        repo.create_branch(branch)?;
+    } else if !repo.branch_exists(branch) {
+        bail!(
+            "no such branch: {branch}\n\
+             Use `-b` to create and switch to it in one step."
+        );
+    }
+
+    if repo.current_branch()? == branch {
+        println!("Already on branch '{branch}'.");
+        return Ok(());
+    }
+
+    repo.set_current_branch(branch)?;
+    println!("Switched to branch '{branch}'.");
+    Ok(())
 }
