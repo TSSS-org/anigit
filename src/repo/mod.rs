@@ -9,6 +9,7 @@
 //! .anigit/
 //!   HEAD                  → which branch you're on
 //!   config                → repo_kind, visibility, owner info, remotes
+//!   STAGED                → the one entry staged for commit (transient)
 //!   refs/
 //!     branches/<name>       → commit ID the branch currently points at
 //!   objects/
@@ -17,6 +18,7 @@
 
 pub mod commit;
 pub mod config;
+pub mod staging;
 
 use anyhow::{bail, Context, Result};
 use std::fs;

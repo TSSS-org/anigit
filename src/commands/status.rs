@@ -1,8 +1,12 @@
 use anyhow::Result;
 use std::env;
 
+use super::diff::changes_lines;
 use crate::repo::Repo;
 
+/// `anigit status` — current branch, repo kind/visibility, HEAD, and the
+/// staging area (mirrors `git status`'s "Changes to be committed" section;
+/// staging model per brainstorm.md 1.7a).
 pub fn run() -> Result<()> {
     let cwd = env::current_dir()?;
     let repo = Repo::discover(&cwd)?;
@@ -18,10 +22,29 @@ pub fn run() -> Result<()> {
         None => println!("No commits yet."),
     }
 
-    // TODO: once `anigit add` staging is implemented, show staged-but-not-
-    // committed changes here too (mirrors `git status`'s "Changes to be
-    // committed" section).
-    println!("(staged changes display not yet implemented)");
+    println!();
+    match repo.read_staged()? {
+        Some(staged) => {
+            println!("Changes staged for commit:");
+            println!(
+                "  {} ({}/{})",
+                staged.anime_title, staged.catalog_ref.source, staged.catalog_ref.id
+            );
+            let lines = changes_lines(&staged.changes);
+            if lines.is_empty() {
+                println!("    (no field changes recorded)");
+            } else {
+                for line in lines {
+                    println!("    {line}");
+                }
+            }
+            println!("\nUse `anigit commit -m \"<message>\"` to record them.");
+        }
+        None => {
+            println!("Nothing staged.");
+            println!("Use `anigit add <anime name>` to stage changes.");
+        }
+    }
 
     Ok(())
 }
