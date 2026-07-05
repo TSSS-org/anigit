@@ -1,8 +1,7 @@
-use anyhow::{bail, Result};
+use anyhow::Result;
 use std::env;
-use std::path::PathBuf;
 
-use crate::catalog::Catalog;
+use crate::catalog::{catalog_path, resolve_by_name, Catalog};
 use crate::repo::commit::{Changes, Commit, WatchStatus};
 use crate::repo::Repo;
 
@@ -14,27 +13,8 @@ pub fn run(anime_name: &str) -> Result<()> {
     let cwd = env::current_dir()?;
     let repo = Repo::discover(&cwd)?;
 
-    // Same catalog lookup + ambiguous-match handling as `anigit add`
-    // (commands/add.rs) — duplicated here because add.rs is finalized and
-    // keeps its helpers private.
     let catalog = Catalog::open(&catalog_path()?)?;
-    let mut matches = catalog.find_by_name(anime_name)?;
-    if matches.is_empty() {
-        bail!(
-            "no catalog entry found matching '{anime_name}'.\n\
-             The local catalog may be stale — try `anigit refresh`, or check \
-             the spelling."
-        );
-    }
-    if matches.len() > 1 {
-        println!(
-            "note: {} catalog entries match '{anime_name}'; using the first \
-             ('{}'). Ambiguous matching will be improved later.",
-            matches.len(),
-            matches[0].title
-        );
-    }
-    let entry = matches.remove(0);
+    let entry = resolve_by_name(&catalog, anime_name)?;
 
     let branch = repo.current_branch()?;
     // history() is newest-first, so the first commit that set a field is the
@@ -91,29 +71,4 @@ fn status_str_owned(status: WatchStatus) -> String {
         WatchStatus::Completed => "completed",
     }
     .to_string()
-}
-
-/// Catalog file resolution — same rule as `anigit add` (commands/add.rs):
-/// `ANIGIT_CATALOG` env override, else `animeta.sqlite` next to the binary
-/// (brainstorm.md 1.5).
-fn catalog_path() -> Result<PathBuf> {
-    let path = match env::var_os("ANIGIT_CATALOG") {
-        Some(p) => PathBuf::from(p),
-        None => {
-            let exe = env::current_exe()?;
-            match exe.parent() {
-                Some(dir) => dir.join("animeta.sqlite"),
-                None => bail!("could not determine the anigit install directory"),
-            }
-        }
-    };
-    if !path.is_file() {
-        bail!(
-            "anime catalog not found at {} — set ANIGIT_CATALOG to point at \
-             a catalog file, or run `anigit refresh` once catalog sync is \
-             available.",
-            path.display()
-        );
-    }
-    Ok(path)
 }

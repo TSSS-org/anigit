@@ -312,6 +312,27 @@ impl Repo {
         Ok(commit)
     }
 
+    /// The most recent commit two branches' histories share, or `None` if
+    /// they share nothing (only possible for disconnected branches, which
+    /// shouldn't normally occur since every branch in a repo descends from
+    /// the same first commit). Follows first-parent chains, same as
+    /// `history()`.
+    pub fn common_ancestor(&self, branch_a: &str, branch_b: &str) -> Result<Option<String>> {
+        let a_ids: std::collections::HashSet<String> = self
+            .history(branch_a)?
+            .into_iter()
+            .map(|c| c.id)
+            .collect();
+        // history() walks newest-first, so the first shared commit found is
+        // the most recent common point.
+        for commit in self.history(branch_b)? {
+            if a_ids.contains(&commit.id) {
+                return Ok(Some(commit.id));
+            }
+        }
+        Ok(None)
+    }
+
     /// Walk a branch's history from its tip back to the root, following
     /// `parent_ids[0]` (the first-parent chain — same convention as `git log`
     /// on a merge-heavy history).
