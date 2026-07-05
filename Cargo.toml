@@ -1,0 +1,45 @@
+[package]
+name = "anigit"
+version = "0.1.0"
+edition = "2021"
+description = "A local-first version control system for tracking anime-watching history, inspired by git."
+license = "MIT"
+authors = []
+
+[[bin]]
+name = "anigit"
+path = "src/main.rs"
+
+[dependencies]
+# CLI argument parsing — subcommands (init, add, commit, log, diff, etc.)
+clap = { version = "4", features = ["derive"] }
+
+# Interactive TUI for `anigit add` (per brainstorm.md 1.7a)
+ratatui = "0.29"
+crossterm = "0.28"
+
+# Serialization for commit objects (.anigit/objects/commits/<id>.json) — see brainstorm.md 1.3a
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# SQLite access for the bundled/synced anime metadata catalog (brainstorm.md 1.5, 1.11, 1.13)
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+# Timestamps for commit objects
+chrono = { version = "0.4", features = ["serde"] }
+
+# Unique commit IDs
+uuid = { version = "1", features = ["v4"] }
+
+# HTTP client for `anigit refresh` (pulling deltas/checkpoints from the animetaScraper VM)
+reqwest = { version = "0.12", features = ["json", "blocking"] }
+
+# Error handling
+anyhow = "1"
+thiserror = "1"
+
+[profile.release]
+# Smaller, faster binaries for distribution (Homebrew/npm/GitHub Releases per brainstorm.md 1.9)
+lto = true
+strip = true
+opt-level = 3
