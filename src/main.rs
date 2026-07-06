@@ -42,5 +42,6 @@ fn main() -> Result<()> {
         Command::Revert { commit_id } => commands::revert::run(&commit_id),
         Command::Compare { other_repo } => commands::compare::run(&other_repo),
         Command::Refresh => commands::refresh::run(),
+        Command::Config { action } => commands::config::run(action),
     }
 }

@@ -29,12 +29,22 @@ pub fn run(oneline: bool, graph: bool) -> Result<()> {
     for commit in history {
         let is_merge = commit.parent_ids.len() >= 2;
         let short = &commit.id[..commit.id.len().min(11)];
+        // Commits written as one multi-anime merge operation share a
+        // merge_group_id in metadata (part 7 / brainstorm.md section 4) —
+        // surface it so the chain reads as one action, not a burst of
+        // unrelated commits.
+        let group = commit
+            .metadata
+            .get("merge_group_id")
+            .and_then(|v| v.as_str())
+            .map(|g| format!(" [merge-group {}]", &g[..g.len().min(11)]))
+            .unwrap_or_default();
 
         if oneline {
             if graph {
                 print!("* ");
             }
-            println!("{short} {}", commit.message);
+            println!("{short} {}{group}", commit.message);
             if graph && is_merge {
                 println!("|\\");
             }
@@ -46,7 +56,7 @@ pub fn run(oneline: bool, graph: bool) -> Result<()> {
                 print!("* ");
             }
             println!(
-                "commit {}{}",
+                "commit {}{}{group}",
                 commit.id,
                 if is_merge { " (merge)" } else { "" }
             );

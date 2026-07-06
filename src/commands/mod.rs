@@ -9,6 +9,7 @@ pub mod checkout;
 pub mod clone_fork;
 pub mod commit;
 pub mod compare;
+pub mod config;
 pub mod diff;
 pub mod init;
 pub mod log;

@@ -99,6 +99,14 @@ pub fn run(branch: &str) -> Result<()> {
             Changes::default(),
         ));
     }
+    // merge_group_id (brainstorm.md section 4, resolved in part 7): when the
+    // merge chain spans multiple anime, every commit in it carries a shared
+    // group id in `metadata` — the open-ended field reserved for exactly
+    // this kind of addition, no schema_version bump needed — so `log` can
+    // visually tie the chain together. A single-commit merge skips it:
+    // there's nothing to group, and the Merge action already marks it.
+    let group_id = (resolved.len() > 1).then(|| format!("mg_{}", uuid::Uuid::new_v4().simple()));
+
     let mut prev_id = None;
     for (i, (key, changes)) in resolved.iter().enumerate() {
         let catalog_ref = CatalogRef {
@@ -121,6 +129,12 @@ pub fn run(branch: &str) -> Result<()> {
         let mut commit = Commit::new(parents, current.clone(), catalog_ref, changes.clone(), message);
         if i == 0 {
             commit.action = CommitAction::Merge;
+        }
+        if let Some(group_id) = &group_id {
+            commit.metadata.insert(
+                "merge_group_id".to_string(),
+                serde_json::Value::String(group_id.clone()),
+            );
         }
         repo.write_commit(&commit)?;
         println!(

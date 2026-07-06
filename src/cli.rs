@@ -137,6 +137,49 @@ pub enum Command {
     /// is fully offline," since it syncs shared catalog metadata rather than
     /// personal repo data.
     Refresh,
+
+    /// View or change repo settings: the Shared/SingleUser repo_kind toggle
+    /// and the visibility level (brainstorm.md 1.6). Deliberately narrower
+    /// than real `git config` — just these two settings, not arbitrary
+    /// key-value pairs. (Added in part 7 of the v1 build; earlier parts had
+    /// to hand-edit .anigit/config to test merge gating.)
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ConfigAction {
+    /// Show repo_kind, visibility, owner, and fork provenance (if any).
+    Show,
+    /// Set the repo kind. Toggleable at any time by the owner (1.6).
+    SetKind {
+        #[arg(value_enum)]
+        kind: KindArg,
+    },
+    /// Set the visibility level. Toggleable at any time by the owner (1.6).
+    SetVisibility {
+        #[arg(value_enum)]
+        visibility: VisibilityArg,
+    },
+}
+
+/// CLI-layer mirrors of `repo::config::RepoKind`/`Visibility`, so clap can
+/// parse/validate/tab-complete them without the repo data model needing to
+/// know about clap.
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+pub enum KindArg {
+    Shared,
+    SingleUser,
+}
+
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+pub enum VisibilityArg {
+    PublicContributable,
+    PublicViewOnly,
+    Private,
+    PrivateSharedWithSpecificPeople,
 }
 
 #[derive(Subcommand)]

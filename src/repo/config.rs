@@ -5,6 +5,7 @@
 //! top of an identical underlying event-log format — never a different data
 //! shape per repo kind — so they stay cheap to flip at any time.
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -38,6 +39,20 @@ pub struct RepoConfig {
     /// Remote URLs this repo knows about (for future push/pull, v2+).
     #[serde(default)]
     pub remotes: Vec<RemoteEntry>,
+    /// Fork provenance, present only on repos created by `anigit fork`
+    /// (brainstorm.md 1.7a — fork is clone + lineage, for AniHub later).
+    /// Optional and absent by default, so configs written before this field
+    /// existed still parse unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forked_from: Option<ForkProvenance>,
+}
+
+/// Where a forked repo came from and when. `source` is a local path in v1
+/// (brainstorm.md 1.8); it becomes an AniHub URL once that exists.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ForkProvenance {
+    pub source: String,
+    pub forked_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -55,6 +70,7 @@ impl Default for RepoConfig {
             visibility: Visibility::Private,
             owner: "local-user".to_string(),
             remotes: Vec::new(),
+            forked_from: None,
         }
     }
 }
