@@ -28,12 +28,17 @@ pub fn run(anime_name: &str) -> Result<()> {
     if history.is_empty() {
         println!(
             "'{}' (anilist/{}) has no commits on branch '{branch}'.",
-            entry.title, entry.id
+            entry.display_title(),
+            entry.id
         );
         return Ok(());
     }
 
-    println!("Blame for '{}' (anilist/{}) on branch {branch}:", entry.title, entry.id);
+    println!(
+        "Blame for '{}' (anilist/{}) on branch {branch}:",
+        entry.display_title(),
+        entry.id
+    );
     field_blame(&history, "status", |c| c.status.map(status_str_owned));
     field_blame(&history, "episode_progress", |c| {
         c.episode_progress.map(|v| v.to_string())

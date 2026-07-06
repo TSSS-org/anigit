@@ -27,6 +27,8 @@
 //! example in brainstorm.md 1.3a (`"score": 8`) — not the 0-100 AniList
 //! scale.
 
+pub mod search;
+
 use anyhow::Result;
 use crossterm::event::{
     self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind,

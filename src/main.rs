@@ -9,7 +9,7 @@ fn main() -> Result<()> {
 
     match cli.command {
         Command::Init => commands::init::run(),
-        Command::Add { anime_name } => commands::add::run(&anime_name),
+        Command::Add => commands::add::run(),
         Command::Commit { message, amend } => commands::commit::run(&message, amend),
         Command::Status => commands::status::run(),
         Command::Log { oneline, graph } => commands::log::run(oneline, graph),

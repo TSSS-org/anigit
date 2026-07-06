@@ -121,7 +121,7 @@ pub fn display_name(catalog: Option<&Catalog>, key: &EntryKey) -> String {
     if let Some(catalog) = catalog {
         if key.0 == "anilist" {
             if let Ok(Some(entry)) = catalog.find_by_id(key.1) {
-                return format!("'{}' ({}/{})", entry.title, key.0, key.1);
+                return format!("'{}' ({}/{})", entry.display_title(), key.0, key.1);
             }
         }
     }

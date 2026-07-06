@@ -20,12 +20,12 @@ pub enum Command {
     /// Create a new, empty anigit repo in the current directory.
     Init,
 
-    /// Stage changes to an anime entry via an interactive menu.
-    /// The only anigit command with a TUI — see brainstorm.md 1.7a.
-    Add {
-        /// Anime name to search the local catalog for.
-        anime_name: String,
-    },
+    /// Stage changes to an anime entry: an interactive search screen picks
+    /// the anime (type to filter, arrows/mouse to choose), then the edit
+    /// menu opens. The only anigit command with a TUI — see brainstorm.md
+    /// 1.7a (updated 2026-07-06: the `<anime name>` argument was removed;
+    /// ambiguous first-match resolution picked wrong entries in practice).
+    Add,
 
     /// Record staged changes as a new commit. Plain flag-based, no TUI —
     /// mirrors `git commit -m "..."`.

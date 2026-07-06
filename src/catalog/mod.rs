@@ -67,7 +67,7 @@ pub fn resolve_by_name(catalog: &Catalog, name: &str) -> Result<CatalogEntry> {
             "note: {} catalog entries match '{name}'; using the first \
              ('{}'). Ambiguous matching will be improved later.",
             matches.len(),
-            matches[0].title
+            matches[0].display_title()
         );
     }
     Ok(matches.remove(0))
@@ -80,7 +80,13 @@ pub fn resolve_by_name(catalog: &Catalog, name: &str) -> Result<CatalogEntry> {
 #[derive(Debug, Clone)]
 pub struct CatalogEntry {
     pub id: i64,
-    pub title: String,
+    /// Two separate title fields, mirroring AniList's own API shape (and
+    /// animetaScraper's real output — bug fix 1, 2026-07-06). Both optional:
+    /// real entries sometimes have only one. Inserts enforce at least one
+    /// present (`insert_from_delta`); use `display_title()` wherever a
+    /// single string is needed.
+    pub title_romaji: Option<String>,
+    pub title_english: Option<String>,
     pub format: Option<String>,
     pub episodes: Option<u32>,
     pub description: Option<String>,
@@ -89,9 +95,25 @@ pub struct CatalogEntry {
     pub start_date: Option<String>,
     pub end_date: Option<String>,
     pub genres: Vec<String>,
+    /// Tags, same JSON-encoded-column pattern as genres — the other half of
+    /// 1.11's "genres/tags" scoping, implemented in bug fix 2 (2026-07-06).
+    pub tags: Vec<String>,
     /// RFC3339 timestamp of when this row was last synced/written — the
     /// input to the staleness check (brainstorm.md 1.12).
     pub last_updated: String,
+}
+
+impl CatalogEntry {
+    /// The one title to show in single-line contexts, chosen consistently
+    /// everywhere: English if present, else romaji. The placeholder can't
+    /// occur for entries synced via a valid delta (inserts require at least
+    /// one title), but the struct itself doesn't assume that.
+    pub fn display_title(&self) -> &str {
+        self.title_english
+            .as_deref()
+            .or(self.title_romaji.as_deref())
+            .unwrap_or("(untitled)")
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,50 +125,70 @@ pub enum AiringStatus {
 
 /// Column list shared by every entry query, in `entry_from_row` order.
 const ENTRY_COLUMNS: &str =
-    "id, title, format, episodes, description, status, start_date, end_date, \
-     genres_json, last_updated";
+    "id, title_romaji, title_english, format, episodes, description, status, \
+     start_date, end_date, genres_json, tags_json, last_updated";
 
 /// Shared row mapping for the `ENTRY_COLUMNS` column order used by every
 /// query above.
 fn entry_from_row(row: &rusqlite::Row) -> rusqlite::Result<CatalogEntry> {
-    let status_str: String = row.get(5)?;
-    let genres_json: Option<String> = row.get(8)?;
+    let status_str: String = row.get(6)?;
+    let genres_json: Option<String> = row.get(9)?;
+    let tags_json: Option<String> = row.get(10)?;
     Ok(CatalogEntry {
         id: row.get(0)?,
-        title: row.get(1)?,
-        format: row.get(2)?,
-        episodes: row.get(3)?,
-        description: row.get(4)?,
+        title_romaji: row.get(1)?,
+        title_english: row.get(2)?,
+        format: row.get(3)?,
+        episodes: row.get(4)?,
+        description: row.get(5)?,
         status: match status_str.as_str() {
             "RELEASING" => AiringStatus::Releasing,
             "FINISHED" => AiringStatus::Finished,
             _ => AiringStatus::NotYetReleased,
         },
-        start_date: row.get(6)?,
-        end_date: row.get(7)?,
+        start_date: row.get(7)?,
+        end_date: row.get(8)?,
         // Genres live in one JSON-encoded text column (SQLite has no array
         // type; a separate genres table would be over-engineering for v1).
         genres: genres_json
             .as_deref()
             .and_then(|j| serde_json::from_str(j).ok())
             .unwrap_or_default(),
-        last_updated: row.get(9)?,
+        tags: tags_json
+            .as_deref()
+            .and_then(|j| serde_json::from_str(j).ok())
+            .unwrap_or_default(),
+        last_updated: row.get(11)?,
     })
 }
 
 /// Delta `fields` keys → catalog column names (brainstorm.md 1.13a delta
 /// shape). Also the whitelist: anything else in a delta is a schema
 /// mismatch, not something to guess about.
+///
+/// Key names match animetaScraper's REAL output exactly (bug fixes 1+2,
+/// 2026-07-06): the scraper emits SQLite column names as JSON keys
+/// (`genres_json`, `tags_json`), not abstract friendly names — verified
+/// against live delta data, don't "clean these up" back to `genres`/`tags`.
 const DELTA_FIELDS: &[(&str, &str)] = &[
-    ("title", "title"),
+    ("title_romaji", "title_romaji"),
+    ("title_english", "title_english"),
     ("format", "format"),
     ("episodes", "episodes"),
     ("description", "description"),
     ("status", "status"),
     ("start_date", "start_date"),
     ("end_date", "end_date"),
-    ("genres", "genres_json"),
+    ("genres_json", "genres_json"),
+    ("tags_json", "tags_json"),
 ];
+
+/// Keys that appear INSIDE a real delta's `fields` dict but are already
+/// handled via the separate `id`/`last_updated` function parameters
+/// (confirmed on the live VM — bug fix 2). They're skipped in the apply
+/// loops below, NOT whitelisted: letting them through would either bail as
+/// "unknown field" or double-bind a column. Do not remove the skip.
+const HANDLED_ELSEWHERE: &[&str] = &["id", "last_updated"];
 
 fn column_for_field(field: &str) -> Result<&'static str> {
     match DELTA_FIELDS.iter().find(|(f, _)| *f == field) {
@@ -192,7 +234,8 @@ impl Catalog {
         self.conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS anime (
                 id INTEGER PRIMARY KEY,
-                title TEXT NOT NULL,
+                title_romaji TEXT,
+                title_english TEXT,
                 format TEXT,
                 episodes INTEGER,
                 description TEXT,
@@ -200,6 +243,7 @@ impl Catalog {
                 start_date TEXT,
                 end_date TEXT,
                 genres_json TEXT,
+                tags_json TEXT,
                 last_updated TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS sync_state (
@@ -210,11 +254,16 @@ impl Catalog {
         Ok(())
     }
 
-    /// Fuzzy-ish lookup by title for `anigit add <anime name>`.
+    /// Fuzzy-ish lookup by title for `anigit add <anime name>` — matches
+    /// EITHER title field, so "Saiyuuki" (romaji) and "Alakazam the Great"
+    /// (English) both find the same entry. One row per matching id even if
+    /// a term matches both columns (it's a WHERE on a single table, not a
+    /// join — no duplication possible).
     /// TODO: real fuzzy matching (currently exact/LIKE substring only).
     pub fn find_by_name(&self, name: &str) -> Result<Vec<CatalogEntry>> {
         let mut stmt = self.conn.prepare(&format!(
-            "SELECT {ENTRY_COLUMNS} FROM anime WHERE title LIKE ?1 LIMIT 20"
+            "SELECT {ENTRY_COLUMNS} FROM anime \
+             WHERE title_romaji LIKE ?1 OR title_english LIKE ?1 LIMIT 20"
         ))?;
         let pattern = format!("%{name}%");
         let rows = stmt.query_map([pattern], entry_from_row)?;
@@ -277,15 +326,29 @@ impl Catalog {
         fields: &serde_json::Map<String, serde_json::Value>,
         last_updated: &str,
     ) -> Result<()> {
-        for required in ["title", "status"] {
-            if !fields.contains_key(required) {
-                bail!("malformed delta: insert for id {id} is missing required field '{required}'");
-            }
+        // At least ONE title must be present (not both — real AniList data
+        // sometimes has only one); status stays hard-required.
+        if !fields.contains_key("title_romaji") && !fields.contains_key("title_english") {
+            bail!(
+                "malformed delta: insert for id {id} has neither 'title_romaji' \
+                 nor 'title_english'"
+            );
+        }
+        if !fields.contains_key("status") {
+            bail!("malformed delta: insert for id {id} is missing required field 'status'");
         }
         let mut columns = vec!["id".to_string(), "last_updated".to_string()];
         let mut params: Vec<rusqlite::types::Value> =
             vec![id.into(), last_updated.to_string().into()];
         for (field, value) in fields {
+            // Real deltas repeat `id`/`last_updated` INSIDE `fields` too
+            // (confirmed on the live VM); both are already bound from the
+            // function parameters above. Skip them here — letting them
+            // through would fail the whitelist ("unknown field 'id'") or
+            // double-bind the column. This skip is load-bearing.
+            if HANDLED_ELSEWHERE.contains(&field.as_str()) {
+                continue;
+            }
             columns.push(column_for_field(field)?.to_string());
             params.push(sql_value(field, value)?);
         }
@@ -312,6 +375,12 @@ impl Catalog {
         let mut assignments = vec!["last_updated = ?1".to_string()];
         let mut params: Vec<rusqlite::types::Value> = vec![last_updated.to_string().into()];
         for (field, value) in fields {
+            // Same skip as insert_from_delta: `id`/`last_updated` arrive
+            // inside `fields` in real deltas but are already handled via the
+            // function parameters. Do not remove.
+            if HANDLED_ELSEWHERE.contains(&field.as_str()) {
+                continue;
+            }
             params.push(sql_value(field, value)?);
             assignments.push(format!("{} = ?{}", column_for_field(field)?, params.len()));
         }
@@ -360,7 +429,8 @@ mod tests {
     fn entry(status: AiringStatus, last_updated: String) -> CatalogEntry {
         CatalogEntry {
             id: 1,
-            title: "test".into(),
+            title_romaji: Some("test".into()),
+            title_english: None,
             format: None,
             episodes: None,
             description: None,
@@ -368,6 +438,7 @@ mod tests {
             start_date: None,
             end_date: None,
             genres: Vec::new(),
+            tags: Vec::new(),
             last_updated,
         }
     }
@@ -384,5 +455,53 @@ mod tests {
         assert!(!catalog.is_stale(&entry(AiringStatus::Finished, old)));
         // Unparseable timestamps can't prove freshness.
         assert!(catalog.is_stale(&entry(AiringStatus::Releasing, "garbage".into())));
+    }
+
+    /// Regression test for bug fix 2: a delta `fields` dict shaped EXACTLY
+    /// like the live VM's real output — all 12 keys, including `id` and
+    /// `last_updated` repeated inside `fields`, and the `*_json` key names —
+    /// must apply cleanly and round-trip genres/tags.
+    #[test]
+    fn real_shaped_delta_fields_apply_cleanly() {
+        let catalog = Catalog::open(Path::new(":memory:")).unwrap();
+        catalog.init_schema().unwrap();
+
+        let fields: serde_json::Map<String, serde_json::Value> = serde_json::from_str(
+            r#"{
+                "id": 4481,
+                "title_romaji": "Saiyuuki",
+                "title_english": "Alakazam the Great",
+                "format": "MOVIE",
+                "episodes": 1,
+                "description": "A film.",
+                "status": "FINISHED",
+                "start_date": "1960-08-14",
+                "end_date": "1960-08-14",
+                "genres_json": ["Adventure", "Fantasy"],
+                "tags_json": ["Journey to the West", "Historical"],
+                "last_updated": "2026-07-06T02:00:00+00:00"
+            }"#,
+        )
+        .unwrap();
+
+        catalog
+            .insert_from_delta(4481, &fields, "2026-07-06T02:00:00+00:00")
+            .unwrap();
+        let entry = catalog.find_by_id(4481).unwrap().unwrap();
+        assert_eq!(entry.display_title(), "Alakazam the Great");
+        assert_eq!(entry.genres, vec!["Adventure", "Fantasy"]);
+        assert_eq!(entry.tags, vec!["Journey to the West", "Historical"]);
+
+        // Updates hit the same loop — same real shape must work there too.
+        let update: serde_json::Map<String, serde_json::Value> = serde_json::from_str(
+            r#"{ "id": 4481, "episodes": 2, "tags_json": ["Remaster"], "last_updated": "2026-07-07T02:00:00+00:00" }"#,
+        )
+        .unwrap();
+        assert!(catalog
+            .update_from_delta(4481, &update, "2026-07-07T02:00:00+00:00")
+            .unwrap());
+        let entry = catalog.find_by_id(4481).unwrap().unwrap();
+        assert_eq!(entry.episodes, Some(2));
+        assert_eq!(entry.tags, vec!["Remaster"]);
     }
 }

@@ -2,27 +2,31 @@ use anyhow::Result;
 use std::env;
 
 use super::compare::net_changes;
-use crate::catalog::{catalog_path, resolve_by_name, Catalog};
+use crate::catalog::{catalog_path, Catalog};
 use crate::repo::commit::CatalogRef;
 use crate::repo::staging::StagedEntry;
 use crate::repo::Repo;
 use crate::tui;
 
-/// `anigit add <anime name>` — the ONLY anigit command with an interactive
-/// TUI (brainstorm.md 1.7a). Opens a menu for editing status/episode/score
-/// before a subsequent `anigit commit -m "..."` finalizes it.
+/// `anigit add` — the ONLY anigit command with a TUI (brainstorm.md 1.7a).
+/// Two sequential phases (1.7a, updated 2026-07-06):
+///   1. An interactive incremental-search screen picks the anime — replaces
+///      the old `<anime name>` argument, whose ambiguous-first-match
+///      resolution picked wrong entries in practice.
+///   2. The edit menu (status/episode/score/rewatch) — unchanged from
+///      part 6, pre-populated from this anime's current state in history.
 ///
-/// Flow: look up the name in the local catalog cache, derive this anime's
-/// current state from the branch history so the menu opens pre-populated,
-/// launch the add menu, then write the result to `.anigit/STAGED` for
-/// `anigit commit` to consume — unless the user cancelled, in which case
-/// nothing is staged.
-pub fn run(anime_name: &str) -> Result<()> {
+/// Cancelling EITHER phase stages nothing. On confirm, the result is
+/// written to `.anigit/STAGED` for `anigit commit` to consume.
+pub fn run() -> Result<()> {
     let cwd = env::current_dir()?;
     let repo = Repo::discover(&cwd)?;
 
     let catalog = Catalog::open(&catalog_path()?)?;
-    let entry = resolve_by_name(&catalog, anime_name)?;
+    let Some(entry) = tui::search::run_search_screen(&catalog)? else {
+        println!("Cancelled — nothing staged.");
+        return Ok(());
+    };
 
     // Pre-populate from prior commits touching this anime, if any — same
     // last-set-wins replay compare/merge use (brainstorm.md 1.3).
@@ -30,7 +34,7 @@ pub fn run(anime_name: &str) -> Result<()> {
     let existing = net_changes(&repo.history(&branch)?)
         .remove(&("anilist".to_string(), entry.id));
 
-    let Some(menu) = tui::run_add_menu(&entry.title, existing)? else {
+    let Some(menu) = tui::run_add_menu(entry.display_title(), existing)? else {
         println!("Cancelled — nothing staged.");
         return Ok(());
     };
@@ -40,7 +44,7 @@ pub fn run(anime_name: &str) -> Result<()> {
             source: "anilist".to_string(),
             id: entry.id,
         },
-        anime_title: entry.title,
+        anime_title: entry.display_title().to_string(),
         changes: menu.changes,
     };
     repo.write_staged(&staged)?;
