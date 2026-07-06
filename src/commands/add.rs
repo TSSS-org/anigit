@@ -34,7 +34,9 @@ pub fn run() -> Result<()> {
     let existing = net_changes(&repo.history(&branch)?)
         .remove(&("anilist".to_string(), entry.id));
 
-    let Some(menu) = tui::run_add_menu(entry.display_title(), existing)? else {
+    // entry.episodes caps the episode spinner at the show's real length
+    // (None for shows without a confirmed count, e.g. currently airing).
+    let Some(menu) = tui::run_add_menu(entry.display_title(), existing, entry.episodes)? else {
         println!("Cancelled — nothing staged.");
         return Ok(());
     };

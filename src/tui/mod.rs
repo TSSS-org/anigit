@@ -114,6 +114,11 @@ struct AddForm {
     rewatch: Option<u32>,
     focus: usize,
     mode: Mode,
+    /// The selected anime's real episode count (`CatalogEntry.episodes`) —
+    /// the spinner's cap, so progress can't exceed the show's actual length.
+    /// `None` (count unknown/unconfirmed, e.g. currently airing) falls back
+    /// to the EPISODE_MAX safety ceiling.
+    episode_max: Option<u32>,
     /// State at open time (from prior history). `changes()` only reports
     /// fields that now differ from this, so an untouched pre-populated form
     /// stages an empty delta — matching 1.3a's "a commit only records what
@@ -122,7 +127,7 @@ struct AddForm {
 }
 
 impl AddForm {
-    fn new(title: &str, existing: Option<Changes>) -> Self {
+    fn new(title: &str, existing: Option<Changes>, episode_max: Option<u32>) -> Self {
         let baseline = existing.unwrap_or_default();
         Self {
             title: title.to_string(),
@@ -132,6 +137,7 @@ impl AddForm {
             rewatch: baseline.rewatch_count,
             focus: STATUS,
             mode: Mode::Nav,
+            episode_max,
             baseline,
         }
     }
@@ -160,7 +166,12 @@ impl AddForm {
             Some((current.unwrap_or(0) as i64 + delta).clamp(0, max as i64) as u32)
         }
         match self.focus {
-            EPISODE => self.episode = step_u32(self.episode, delta, EPISODE_MAX),
+            // The real per-anime episode count caps progress when known;
+            // EPISODE_MAX stays as the absolute safety ceiling either way.
+            EPISODE => {
+                let cap = self.episode_max.unwrap_or(EPISODE_MAX).min(EPISODE_MAX);
+                self.episode = step_u32(self.episode, delta, cap);
+            }
             REWATCH => self.rewatch = step_u32(self.rewatch, delta, REWATCH_MAX),
             SCORE => {
                 let next = (self.score.unwrap_or(0) as i64 + delta).clamp(0, SCORE_MAX as i64);
@@ -305,9 +316,11 @@ impl AddForm {
 /// Column (relative to the block's inner area) where field values start;
 /// everything left of it is the focus marker + label.
 const VALUE_COL: u16 = 20;
-/// Numeric value layout within the value column: `[-] <value7> [+]`.
-const VAL_W: u16 = 7;
-const INC_OFF: u16 = 12;
+/// Numeric value layout within the value column: `[-] <value11> [+]`.
+/// 11 chars fits "episode/cap" displays like "1100/1122" and the worst-case
+/// "99999/99999" exactly, keeping the `[+]` cell aligned with its hit region.
+const VAL_W: u16 = 11;
+const INC_OFF: u16 = 16;
 const BTN_W: u16 = 3;
 const DROPDOWN_W: u16 = 16;
 
@@ -325,7 +338,16 @@ struct FormRegions {
 }
 
 fn compute_regions(area: Rect, dropdown_open: bool) -> FormRegions {
-    let block = Rect::new(area.x, area.y, area.width.min(58), area.height.min(9));
+    // Center the (fixed-size) form in whatever area the terminal reports on
+    // this draw — recomputed every redraw, so resizing re-centers for free.
+    let width = area.width.min(58);
+    let height = area.height.min(9);
+    let block = Rect::new(
+        area.x + area.width.saturating_sub(width) / 2,
+        area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    );
     let inner = Rect::new(
         block.x + 1,
         block.y + 1,
@@ -358,7 +380,12 @@ fn compute_regions(area: Rect, dropdown_open: bool) -> FormRegions {
         dec,
         inc,
         save: Rect::new(value_x, inner.y + 5, 8, 1),
-        footer: Rect::new(area.x, block.y + block.height, area.width, 1),
+        footer: Rect::new(
+            block.x,
+            block.y + block.height,
+            area.width.saturating_sub(block.x - area.x),
+            1,
+        ),
         dropdown_items,
     }
 }
@@ -368,10 +395,16 @@ fn compute_regions(area: Rect, dropdown_open: bool) -> FormRegions {
 // ---------------------------------------------------------------------------
 
 /// Launch the interactive add menu, pre-populated with `existing` state if
-/// this anime already has entries in the current repo. Returns `None` if the
-/// user cancelled (Esc) — the caller must not stage anything in that case.
-pub fn run_add_menu(anime_title: &str, existing: Option<Changes>) -> Result<Option<AddMenuResult>> {
-    let mut form = AddForm::new(anime_title, existing);
+/// this anime already has entries in the current repo. `episode_max` is the
+/// anime's real episode count (`CatalogEntry.episodes`), capping the episode
+/// spinner; `None` means the count is unknown. Returns `None` if the user
+/// cancelled (Esc) — the caller must not stage anything in that case.
+pub fn run_add_menu(
+    anime_title: &str,
+    existing: Option<Changes>,
+    episode_max: Option<u32>,
+) -> Result<Option<AddMenuResult>> {
+    let mut form = AddForm::new(anime_title, existing, episode_max);
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -450,7 +483,12 @@ fn draw(frame: &mut Frame, form: &AddForm) -> FormRegions {
             ));
         } else {
             let value = match field {
-                EPISODE => form.episode.map(|v| v.to_string()),
+                // Show the real cap next to episode progress when known,
+                // e.g. "12/24" — makes the clamp visible, not mysterious.
+                EPISODE => form.episode.map(|v| match form.episode_max {
+                    Some(max) => format!("{v}/{max}"),
+                    None => v.to_string(),
+                }),
                 SCORE => form.score.map(|v| v.to_string()),
                 _ => form.rewatch.map(|v| v.to_string()),
             };
@@ -585,7 +623,7 @@ mod tests {
             score: Some(8),
             rewatch_count: None,
         };
-        let form = AddForm::new("NGE", Some(existing));
+        let form = AddForm::new("NGE", Some(existing), None);
         assert_eq!(form.status, Some(WatchStatus::Watching));
         assert_eq!(form.episode, Some(12));
         assert_eq!(form.score, Some(8));
@@ -596,7 +634,7 @@ mod tests {
 
     #[test]
     fn dropdown_open_navigate_select() {
-        let mut form = AddForm::new("x", None);
+        let mut form = AddForm::new("x", None, None);
         assert_eq!(form.focus, STATUS);
         press(&mut form, &[KeyCode::Enter]);
         assert_eq!(form.mode, Mode::Dropdown { highlighted: 0 });
@@ -609,7 +647,7 @@ mod tests {
 
     #[test]
     fn dropdown_esc_closes_without_change() {
-        let mut form = AddForm::new("x", None);
+        let mut form = AddForm::new("x", None, None);
         press(&mut form, &[KeyCode::Enter, KeyCode::Down, KeyCode::Esc]);
         assert_eq!(form.mode, Mode::Nav);
         assert_eq!(form.status, None);
@@ -617,7 +655,7 @@ mod tests {
 
     #[test]
     fn spinner_activate_adjust_confirm() {
-        let mut form = AddForm::new("x", None);
+        let mut form = AddForm::new("x", None, None);
         press(&mut form, &[KeyCode::Down]); // focus episode
         assert_eq!(form.focus, EPISODE);
         press(&mut form, &[KeyCode::Enter]);
@@ -631,7 +669,7 @@ mod tests {
 
     #[test]
     fn spinner_bounds_clamp() {
-        let mut form = AddForm::new("x", None);
+        let mut form = AddForm::new("x", None, None);
         form.focus = SCORE;
         press(&mut form, &[KeyCode::Enter, KeyCode::Down, KeyCode::Down]);
         assert_eq!(form.score, Some(0)); // can't go negative
@@ -647,7 +685,7 @@ mod tests {
             status: Some(WatchStatus::Completed),
             ..Default::default()
         };
-        let mut form = AddForm::new("x", Some(existing));
+        let mut form = AddForm::new("x", Some(existing), None);
         press(&mut form, &[KeyCode::Delete]);
         assert_eq!(form.status, None);
         assert_eq!(press(&mut form, &[KeyCode::Esc]), Some(Outcome::Cancel));
@@ -661,7 +699,7 @@ mod tests {
             score: Some(8),
             rewatch_count: None,
         };
-        let mut form = AddForm::new("x", Some(existing));
+        let mut form = AddForm::new("x", Some(existing), None);
         // Bump score 8 -> 9; leave everything else untouched.
         form.focus = SCORE;
         press(&mut form, &[KeyCode::Enter, KeyCode::Up, KeyCode::Enter]);
@@ -674,7 +712,7 @@ mod tests {
 
     #[test]
     fn mouse_spinner_buttons_and_save() {
-        let mut form = AddForm::new("x", None);
+        let mut form = AddForm::new("x", None, None);
         let regions = compute_regions(Rect::new(0, 0, 60, 20), false);
         click(&mut form, &regions, regions.inc[EPISODE].unwrap());
         click(&mut form, &regions, regions.inc[EPISODE].unwrap());
@@ -690,7 +728,7 @@ mod tests {
 
     #[test]
     fn mouse_dropdown_flow() {
-        let mut form = AddForm::new("x", None);
+        let mut form = AddForm::new("x", None, None);
         let closed = compute_regions(Rect::new(0, 0, 60, 20), false);
         click(&mut form, &closed, closed.rows[STATUS]); // click status field opens dropdown
         assert!(form.dropdown_open());
@@ -700,11 +738,52 @@ mod tests {
         assert_eq!(form.mode, Mode::Nav);
     }
 
+    #[test]
+    fn episode_spinner_clamps_to_real_episode_count() {
+        // A 24-episode show: the spinner must stop at exactly 24.
+        let mut form = AddForm::new("x", None, Some(24));
+        form.focus = EPISODE;
+        press(&mut form, &[KeyCode::Enter]);
+        for _ in 0..30 {
+            press(&mut form, &[KeyCode::Up]);
+        }
+        assert_eq!(form.episode, Some(24));
+        // A movie (episodes: Some(1)) — the real motivating case.
+        let mut movie = AddForm::new("x", None, Some(1));
+        movie.focus = EPISODE;
+        press(&mut movie, &[KeyCode::Enter, KeyCode::Up, KeyCode::Up, KeyCode::Up]);
+        assert_eq!(movie.episode, Some(1));
+    }
+
+    #[test]
+    fn unknown_episode_count_falls_back_to_safety_ceiling() {
+        let mut form = AddForm::new("x", None, None);
+        form.focus = EPISODE;
+        form.episode = Some(EPISODE_MAX - 1);
+        press(&mut form, &[KeyCode::Enter, KeyCode::Up, KeyCode::Up, KeyCode::Up]);
+        assert_eq!(form.episode, Some(EPISODE_MAX)); // old ceiling still holds
+    }
+
+    #[test]
+    fn form_is_centered_in_large_areas() {
+        // Wide + tall terminal: the block sits centered, not top-left.
+        let r = compute_regions(Rect::new(0, 0, 200, 50), false);
+        assert_eq!(r.block.width, 58);
+        assert_eq!(r.block.x, (200 - 58) / 2);
+        assert_eq!(r.block.y, (50 - 9) / 2);
+        // Terminal smaller than the form: no underflow, anchored at origin.
+        let tiny = compute_regions(Rect::new(0, 0, 20, 5), false);
+        assert_eq!((tiny.block.x, tiny.block.y), (0, 0));
+        assert_eq!(tiny.block.width, 20);
+        // Rows stay inside the centered block.
+        assert!(r.rows[0].x > 0 && r.rows[0].x >= r.block.x);
+    }
+
     /// Strongest available smoke test: a full synthetic session — keyboard
     /// only, blank form to submitted `Changes` — checked end to end.
     #[test]
     fn full_synthetic_session() {
-        let mut form = AddForm::new("Solo Leveling", None);
+        let mut form = AddForm::new("Solo Leveling", None, None);
         let outcome = press(
             &mut form,
             &[

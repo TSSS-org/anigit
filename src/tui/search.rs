@@ -188,19 +188,25 @@ struct Regions {
 
 fn compute_regions(area: Rect, visible_results: usize) -> Regions {
     let width = area.width.min(MAX_WIDTH);
-    let input = Rect::new(area.x, area.y, width, INPUT_HEIGHT.min(area.height));
+    // Centered horizontally, recomputed on every draw so resizes re-center
+    // for free. Deliberately NOT centered vertically: the list's height
+    // changes with every keystroke, and a vertically-centered list would
+    // jump up and down as results narrow — top-anchored is the standard
+    // search-palette shape (fzf/Spotlight) for exactly that reason.
+    let x = area.x + area.width.saturating_sub(width) / 2;
+    let input = Rect::new(x, area.y, width, INPUT_HEIGHT.min(area.height));
     // Everything between the input box and the one-line footer holds results.
     let max_rows = area
         .height
         .saturating_sub(INPUT_HEIGHT + 1) as usize;
     let shown = visible_results.min(max_rows);
     let result_rows = (0..shown as u16)
-        .map(|i| Rect::new(area.x, area.y + INPUT_HEIGHT + i, width, 1))
+        .map(|i| Rect::new(x, area.y + INPUT_HEIGHT + i, width, 1))
         .collect();
     let footer = Rect::new(
-        area.x,
+        x,
         area.y + INPUT_HEIGHT + shown as u16,
-        area.width,
+        area.width.saturating_sub(x - area.x),
         1,
     );
     Regions {
@@ -285,7 +291,12 @@ fn draw(frame: &mut Frame, screen: &mut SearchScreen) -> Regions {
         } else {
             format!("No matches for '{}' — try different wording.", screen.query)
         };
-        let rect = Rect::new(area.x + 2, area.y + INPUT_HEIGHT, area.width.saturating_sub(2), 1);
+        let rect = Rect::new(
+            regions.input.x + 2,
+            area.y + INPUT_HEIGHT,
+            area.width.saturating_sub(regions.input.x + 2 - area.x),
+            1,
+        );
         render_clamped(
             frame,
             Paragraph::new(Span::styled(notice, Style::default().fg(Color::Yellow))),
@@ -475,6 +486,18 @@ mod tests {
             click(&mut screen, &regions, regions.result_rows[2]),
             Action::Selected
         );
+    }
+
+    #[test]
+    fn layout_is_horizontally_centered() {
+        // Wide terminal: input + rows sit centered, not flush-left.
+        let r = compute_regions(Rect::new(0, 0, 200, 24), 3);
+        assert_eq!(r.input.width, 70);
+        assert_eq!(r.input.x, (200 - 70) / 2);
+        assert!(r.result_rows.iter().all(|row| row.x == r.input.x));
+        // Terminal narrower than MAX_WIDTH: full width, no underflow.
+        let narrow = compute_regions(Rect::new(0, 0, 40, 24), 3);
+        assert_eq!((narrow.input.x, narrow.input.width), (0, 40));
     }
 
     #[test]
