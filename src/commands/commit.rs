@@ -46,6 +46,17 @@ pub fn run(message: &str, amend: bool) -> Result<()> {
     repo.write_commit(&commit)?;
     repo.clear_staged()?;
 
+    // Regenerate the working-directory folder-tree view (brainstorm.md
+    // 1.16). Both the normal and --amend paths converge on the single
+    // write_commit call above, so this one hook covers both. Failure here
+    // is a WARNING, not a command failure: the commit — the real data —
+    // already landed safely in .anigit/, and a broken derived view
+    // shouldn't mask that success or make the user think the commit
+    // didn't happen.
+    if let Err(err) = crate::tree::regenerate(&repo) {
+        println!("warning: commit succeeded, but regenerating the folder-tree view failed: {err:#}");
+    }
+
     println!(
         "[{branch} {}] {message}",
         &commit.id[..commit.id.len().min(11)]

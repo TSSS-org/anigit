@@ -115,6 +115,14 @@ impl Repo {
         }
     }
 
+    /// The working directory containing `.anigit/` — where the generated
+    /// folder-tree view lives (brainstorm.md 1.16). `None` only if the repo
+    /// root somehow has no parent, which can't happen for repos opened via
+    /// `init`/`discover` (both build absolute `<dir>/.anigit` paths).
+    pub fn work_dir(&self) -> Option<&Path> {
+        self.root.parent()
+    }
+
     pub fn config(&self) -> Result<RepoConfig> {
         let raw = fs::read_to_string(self.root.join("config"))
             .context("failed to read .anigit/config")?;
