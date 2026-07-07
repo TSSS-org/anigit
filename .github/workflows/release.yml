@@ -33,6 +33,9 @@ jobs:
           - target: x86_64-pc-windows-msvc
             os: windows-latest
             archive_ext: zip
+          - target: aarch64-pc-windows-msvc
+            os: windows-latest
+            archive_ext: zip
 
     steps:
       - name: Check out repo
@@ -46,7 +49,10 @@ jobs:
       # rusqlite's `bundled` feature compiles SQLite from C source, so
       # cross-compiling aarch64-on-Linux-runner needs a matching C
       # cross-compiler/linker available. x86_64 targets build natively on
-      # their own runner OS and don't need this.
+      # their own runner OS and don't need this. (openssl-sys previously also
+      # needed this kind of cross-compiled C toolchain and failed without a
+      # full aarch64 OpenSSL sysroot — fixed by switching reqwest to the pure-
+      # Rust rustls-tls backend instead, so only rusqlite's C code remains.)
       - name: Install aarch64 cross-compiler (Linux target only)
         if: matrix.target == 'aarch64-unknown-linux-gnu'
         run: |

@@ -1,6 +1,6 @@
 [package]
 name = "anigit"
-version = "1.4.4"
+version = "1.4.5"
 edition = "2021"
 description = "A local-first version control system for tracking anime-watching history, inspired by git."
 license = "MIT"
@@ -32,7 +32,10 @@ chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }
 
 # HTTP client for `anigit refresh` (pulling deltas/checkpoints from the animetaScraper VM)
-reqwest = { version = "0.12", features = ["json", "blocking"] }
+# rustls-tls (pure Rust, no OpenSSL) instead of the default native-tls backend —
+# avoids needing a cross-compiled OpenSSL when building for non-native targets
+# (e.g. aarch64-linux from an x86_64 CI runner) in the GitHub Actions release workflow.
+reqwest = { version = "0.12", default-features = false, features = ["json", "blocking", "rustls-tls"] }
 
 # Terminal colors for anigit's own success/info output (auto-disables when
 # output is piped/redirected — see brainstorm.md 1.15)
