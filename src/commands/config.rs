@@ -1,4 +1,5 @@
 use anyhow::Result;
+use colored::Colorize;
 use std::env;
 
 use crate::cli::{ConfigAction, KindArg, VisibilityArg};
@@ -21,14 +22,14 @@ pub fn run(action: ConfigAction) -> Result<()> {
 
     match action {
         ConfigAction::Show => {
-            println!("Repo kind:  {:?}", config.repo_kind);
-            println!("Visibility: {:?}", config.visibility);
-            println!("Owner:      {}", config.owner);
+            println!("{}  {:?}", "Repo kind:".cyan(), config.repo_kind);
+            println!("{} {:?}", "Visibility:".cyan(), config.visibility);
+            println!("{}      {}", "Owner:".cyan(), config.owner);
             if let Some(fork) = &config.forked_from {
-                println!("Forked from: {} (at {})", fork.source, fork.forked_at);
+                println!("{} {} (at {})", "Forked from:".cyan(), fork.source, fork.forked_at);
             }
             for remote in &config.remotes {
-                println!("Remote:     {} -> {}", remote.name, remote.url);
+                println!("{}     {} -> {}", "Remote:".cyan(), remote.name, remote.url);
             }
         }
         ConfigAction::SetKind { kind } => {
@@ -37,7 +38,7 @@ pub fn run(action: ConfigAction) -> Result<()> {
                 KindArg::SingleUser => RepoKind::SingleUser,
             };
             repo.write_config(&config)?;
-            println!("repo_kind set to {:?}.", config.repo_kind);
+            println!("{}", format!("repo_kind set to {:?}.", config.repo_kind).green());
         }
         ConfigAction::SetVisibility { visibility } => {
             config.visibility = match visibility {
@@ -49,7 +50,7 @@ pub fn run(action: ConfigAction) -> Result<()> {
                 }
             };
             repo.write_config(&config)?;
-            println!("visibility set to {:?}.", config.visibility);
+            println!("{}", format!("visibility set to {:?}.", config.visibility).green());
         }
     }
 

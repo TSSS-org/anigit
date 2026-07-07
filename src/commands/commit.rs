@@ -1,4 +1,5 @@
 use anyhow::{bail, Result};
+use colored::Colorize;
 use std::env;
 
 use crate::repo::commit::Commit;
@@ -54,16 +55,20 @@ pub fn run(message: &str, amend: bool) -> Result<()> {
     // shouldn't mask that success or make the user think the commit
     // didn't happen.
     if let Err(err) = crate::tree::regenerate(&repo) {
-        println!("warning: commit succeeded, but regenerating the folder-tree view failed: {err:#}");
+        println!(
+            "{} commit succeeded, but regenerating the folder-tree view failed: {err:#}",
+            "warning:".yellow()
+        );
     }
 
     println!(
-        "[{branch} {}] {message}",
+        "[{} {}] {message}",
+        branch.green(),
         &commit.id[..commit.id.len().min(11)]
     );
     println!(
         " {} '{}'",
-        if amend { "amended tip with" } else { "committed" },
+        if amend { "amended tip with" } else { "committed" }.green(),
         staged.anime_title
     );
     Ok(())

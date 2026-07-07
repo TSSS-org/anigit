@@ -1,4 +1,5 @@
 use anyhow::Result;
+use colored::Colorize;
 use std::env;
 
 use super::diff::changes_lines;
@@ -13,9 +14,9 @@ pub fn run() -> Result<()> {
     let branch = repo.current_branch()?;
     let config = repo.config()?;
 
-    println!("On branch {branch}");
-    println!("Repo kind: {:?}", config.repo_kind);
-    println!("Visibility: {:?}", config.visibility);
+    println!("On branch {}", branch.green());
+    println!("{} {:?}", "Repo kind:".cyan(), config.repo_kind);
+    println!("{} {:?}", "Visibility:".cyan(), config.visibility);
 
     match repo.branch_head(&branch)? {
         Some(head) => println!("HEAD -> {head}"),
@@ -25,7 +26,7 @@ pub fn run() -> Result<()> {
     println!();
     match repo.read_staged()? {
         Some(staged) => {
-            println!("Changes staged for commit:");
+            println!("{}", "Changes staged for commit:".cyan());
             println!(
                 "  {} ({}/{})",
                 staged.anime_title, staged.catalog_ref.source, staged.catalog_ref.id

@@ -1,5 +1,6 @@
-//! Interactive TUI for `anigit add` — the only anigit command with a TUI
-//! (brainstorm.md 1.7a).
+//! Interactive TUI for `anigit add` (brainstorm.md 1.7a) — plus the scoped
+//! search screen `anigit blame` reuses this architecture for (see
+//! `blame_search.rs`, brainstorm.md 1.15).
 //!
 //! Accepted interaction pattern (exact visual layout left to implementation
 //! judgment per user's explicit sign-off — easy to change later):
@@ -27,6 +28,7 @@
 //! example in brainstorm.md 1.3a (`"score": 8`) — not the 0-100 AniList
 //! scale.
 
+pub mod blame_search;
 pub mod search;
 
 use anyhow::Result;

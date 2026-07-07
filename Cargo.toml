@@ -1,6 +1,6 @@
 [package]
 name = "anigit"
-version = "1.4.2"
+version = "1.4.4"
 edition = "2021"
 description = "A local-first version control system for tracking anime-watching history, inspired by git."
 license = "MIT"
@@ -33,6 +33,10 @@ uuid = { version = "1", features = ["v4"] }
 
 # HTTP client for `anigit refresh` (pulling deltas/checkpoints from the animetaScraper VM)
 reqwest = { version = "0.12", features = ["json", "blocking"] }
+
+# Terminal colors for anigit's own success/info output (auto-disables when
+# output is piped/redirected — see brainstorm.md 1.15)
+colored = "3"
 
 # Error handling
 anyhow = "1"

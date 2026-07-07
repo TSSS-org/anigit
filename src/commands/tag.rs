@@ -1,4 +1,5 @@
 use anyhow::{bail, Result};
+use colored::Colorize;
 use std::env;
 
 use crate::repo::Repo;
@@ -19,8 +20,8 @@ pub fn run(name: &str) -> Result<()> {
     repo.create_tag(name, &head)?;
 
     println!(
-        "Created tag '{name}' at {}.",
-        &head[..head.len().min(11)]
+        "{}",
+        format!("Created tag '{name}' at {}.", &head[..head.len().min(11)]).green()
     );
     Ok(())
 }

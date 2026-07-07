@@ -244,6 +244,72 @@ impl Repo {
         Ok(())
     }
 
+    /// Delete a branch ref (brainstorm.md 1.15). This only removes the ref
+    /// file — the underlying commit objects are never deleted (append-only
+    /// history, brainstorm.md 1.3), so "losing" a branch means its commits
+    /// become unreachable via normal history traversal, not that they're
+    /// gone from disk.
+    ///
+    /// Unless `force` (`-D`), refuses when the branch's tip commit isn't
+    /// reachable from any other branch — the anigit equivalent of git's
+    /// unmerged-work safety check. Reachability follows ALL parents (not
+    /// just the first-parent chain `history()` uses), so a branch that was
+    /// merged into another counts as reachable through the merge commit's
+    /// second parent.
+    pub fn delete_branch(&self, name: &str, force: bool) -> Result<()> {
+        if !self.branch_exists(name) {
+            bail!("no such branch: {name}");
+        }
+        if self.current_branch()? == name {
+            bail!("cannot delete branch '{name}': you are currently on it");
+        }
+
+        if !force {
+            if let Some(tip) = self.branch_head(name)? {
+                if !self.reachable_from_other_branches(name, &tip)? {
+                    bail!(
+                        "branch '{name}' has commits not reachable from any other branch.\n\
+                         Deleting it would orphan them (the commit files stay on disk,\n\
+                         but no branch's history would reach them).\n\
+                         Use `anigit branch -D {name}` to delete it anyway."
+                    );
+                }
+            }
+        }
+
+        fs::remove_file(self.root.join("refs").join("branches").join(name))?;
+        Ok(())
+    }
+
+    /// Whether `commit_id` is reachable from the tip of any branch other
+    /// than `excluded_branch`, following ALL parents of every commit (unlike
+    /// `history()`, which follows only the first-parent chain — merges must
+    /// count here).
+    fn reachable_from_other_branches(&self, excluded_branch: &str, commit_id: &str) -> Result<bool> {
+        let mut visited = std::collections::HashSet::new();
+        let mut queue: Vec<String> = Vec::new();
+
+        for branch in self.list_branches()? {
+            if branch == excluded_branch {
+                continue;
+            }
+            if let Some(tip) = self.branch_head(&branch)? {
+                queue.push(tip);
+            }
+        }
+
+        while let Some(id) = queue.pop() {
+            if id == commit_id {
+                return Ok(true);
+            }
+            if !visited.insert(id.clone()) {
+                continue;
+            }
+            queue.extend(self.read_commit(&id)?.parent_ids.iter().cloned());
+        }
+        Ok(false)
+    }
+
     /// Switch which branch HEAD points at. This only rewrites `.anigit/HEAD`
     /// (which branch you're on) — it never moves any branch's commit
     /// pointer; that's `set_branch_head`'s job.

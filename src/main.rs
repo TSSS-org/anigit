@@ -15,7 +15,11 @@ fn main() -> Result<()> {
         Command::Log { oneline, graph } => commands::log::run(oneline, graph),
         Command::Diff { from, to } => commands::diff::run(from.as_deref(), to.as_deref()),
         Command::Show { commit_id } => commands::show::run(&commit_id),
-        Command::Branch { name } => commands::branch::run(name.as_deref()),
+        Command::Branch {
+            name,
+            delete,
+            force_delete,
+        } => commands::branch::run(name.as_deref(), delete, force_delete),
         Command::Checkout { create, branch } => commands::checkout::run(&branch, create),
         Command::Switch { create, branch } => commands::checkout::run(&branch, create),
         Command::Merge { branch } => commands::merge::run(&branch),
@@ -32,12 +36,13 @@ fn main() -> Result<()> {
             RemoteAction::List => commands::remote::list(),
         },
         Command::Push { .. } | Command::Pull { .. } | Command::Fetch { .. } => {
+            // Network sync sequencing: brainstorm.md 1.8.
             anyhow::bail!(
-                "push/pull/fetch require network sync via AniHub, which is v2+ \
-                 (see brainstorm.md 1.8). Not available in v1."
+                "push/pull/fetch require network sync via AniHub, which is \
+                 planned for v2+. Not available in v1."
             )
         }
-        Command::Blame { anime_name } => commands::blame::run(&anime_name),
+        Command::Blame => commands::blame::run(),
         Command::Reflog => commands::reflog::run(),
         Command::Revert { commit_id } => commands::revert::run(&commit_id),
         Command::Compare { other_repo } => commands::compare::run(&other_repo),

@@ -1,4 +1,5 @@
 use anyhow::{bail, Result};
+use colored::Colorize;
 use std::env;
 
 use crate::repo::Repo;
@@ -27,6 +28,6 @@ pub fn run(branch: &str, create: bool) -> Result<()> {
     }
 
     repo.set_current_branch(branch)?;
-    println!("Switched to branch '{branch}'.");
+    println!("{}", format!("Switched to branch '{branch}'.").green());
     Ok(())
 }
