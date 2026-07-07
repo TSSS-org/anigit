@@ -187,6 +187,17 @@ pub enum Command {
         #[command(subcommand)]
         action: ConfigAction,
     },
+
+    // Motivation and the prompt-then-act-immediately design: brainstorm.md
+    // 1.17. Finds the binary via current_exe() (install-method-agnostic)
+    // and the catalog via catalog_path_for_sync().
+    /// Remove the anigit binary and bundled catalog file. Does NOT touch
+    /// any .anigit repos or generated folder trees — those are your data.
+    Uninstall {
+        /// Skip the confirmation prompt.
+        #[arg(long)]
+        confirm: bool,
+    },
 }
 
 #[derive(Subcommand)]

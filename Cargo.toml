@@ -1,6 +1,6 @@
 [package]
 name = "anigit"
-version = "1.4.5"
+version = "1.4.6"
 edition = "2021"
 description = "A local-first version control system for tracking anime-watching history, inspired by git."
 license = "MIT"

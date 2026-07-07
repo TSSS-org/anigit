@@ -21,3 +21,4 @@ pub mod revert;
 pub mod show;
 pub mod status;
 pub mod tag;
+pub mod uninstall;

@@ -48,5 +48,6 @@ fn main() -> Result<()> {
         Command::Compare { other_repo } => commands::compare::run(&other_repo),
         Command::Refresh => commands::refresh::run(),
         Command::Config { action } => commands::config::run(action),
+        Command::Uninstall { confirm } => commands::uninstall::run(confirm),
     }
 }
