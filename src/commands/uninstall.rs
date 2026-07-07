@@ -16,6 +16,16 @@
 //! executing image and a direct delete fails — instead we spawn a tiny
 //! detached `cmd` that waits a moment for this process to exit and then
 //! deletes the unlocked file.
+//!
+//! Package-manager installs are a hard refusal, checked BEFORE anything
+//! above: deleting the raw binary out from under Homebrew (or, later,
+//! Scoop/npm) leaves the manager's own records claiming anigit is still
+//! installed — `brew install anigit` then reports "already installed and
+//! up-to-date" against a binary that no longer exists. When the resolved
+//! (symlink-followed) binary path sits inside a known manager-owned
+//! location, we print the manager's own uninstall command and exit without
+//! touching anything. `--confirm` does NOT bypass this — it only skips the
+//! interactive prompt for the manual-install case.
 
 use anyhow::{Context, Result};
 use colored::Colorize;
@@ -29,6 +39,29 @@ use crate::catalog::catalog_path_for_sync;
 pub fn run(confirm: bool) -> Result<()> {
     let binary = env::current_exe()
         .context("could not determine the path of the running anigit binary")?;
+
+    // Package-manager check first, before the prompt and before any
+    // deletion — and deliberately not skippable via --confirm. Canonicalize
+    // to follow the manager's symlink (e.g. /usr/local/bin/anigit ->
+    // .../Cellar/anigit/<version>/bin/anigit); current_exe() may return
+    // either side depending on platform and invocation.
+    let resolved = fs::canonicalize(&binary).unwrap_or_else(|_| binary.clone());
+    if let Some(manager) = detect_package_manager(&resolved) {
+        println!(
+            "anigit was installed via {name}. Use its own uninstall command instead:\n\
+             \n\
+             \x20 {command}\n\
+             \n\
+             `anigit uninstall` is intended for manual installs (cargo install, or a\n\
+             manually placed binary) and isn't aware of {name}'s own installation\n\
+             records — deleting the binary directly here would leave {name} thinking\n\
+             it's still installed.",
+            name = manager.name,
+            command = manager.uninstall_command
+        );
+        return Ok(());
+    }
+
     let catalog = catalog_path_for_sync()?;
 
     if !confirm {
@@ -72,6 +105,33 @@ pub fn run(confirm: bool) -> Result<()> {
     println!("anigit is uninstalled. Your .anigit repos were not touched.");
 
     Ok(())
+}
+
+/// A package manager whose installs this command refuses to touch.
+struct PackageManager {
+    name: &'static str,
+    uninstall_command: &'static str,
+}
+
+/// Checks the fully-resolved (symlink-followed) binary path against known
+/// package-manager-owned locations. Each manager is one arm here — adding
+/// Scoop (a `scoop`+`apps` path on Windows) or npm (a global
+/// `node_modules` prefix) later means appending an arm, not restructuring.
+fn detect_package_manager(resolved: &Path) -> Option<PackageManager> {
+    let has_segment =
+        |segment: &str| resolved.components().any(|c| c.as_os_str() == segment);
+
+    // Homebrew keeps every installed binary under a Cellar directory
+    // (/usr/local/Cellar on Intel macOS/Linuxbrew, /opt/homebrew/Cellar on
+    // Apple Silicon), with the bin/ entry as a symlink into it.
+    if has_segment("Cellar") {
+        return Some(PackageManager {
+            name: "Homebrew",
+            uninstall_command: "brew uninstall anigit",
+        });
+    }
+
+    None
 }
 
 /// Only a literal lowercase `y` proceeds — matching the prompt's own
@@ -131,7 +191,37 @@ fn remove_binary(binary: &Path) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::is_confirmed;
+    use super::{detect_package_manager, is_confirmed};
+    use std::path::Path;
+
+    #[test]
+    fn cellar_paths_detect_as_homebrew() {
+        for path in [
+            "/usr/local/Cellar/anigit/1.4.6/bin/anigit",
+            "/opt/homebrew/Cellar/anigit/1.4.6/bin/anigit",
+            "/home/linuxbrew/.linuxbrew/Cellar/anigit/1.4.6/bin/anigit",
+        ] {
+            let manager = detect_package_manager(Path::new(path))
+                .unwrap_or_else(|| panic!("{path} should detect as Homebrew"));
+            assert_eq!(manager.name, "Homebrew");
+            assert_eq!(manager.uninstall_command, "brew uninstall anigit");
+        }
+    }
+
+    #[test]
+    fn manual_install_paths_are_not_flagged() {
+        for path in [
+            "/usr/local/bin/anigit",
+            "/opt/homebrew/bin/anigit",
+            "/home/user/.cargo/bin/anigit",
+            "/home/user/CellarDoor/anigit", // segment must match exactly, not substring
+        ] {
+            assert!(
+                detect_package_manager(Path::new(path)).is_none(),
+                "{path} should NOT be flagged as a package-manager install"
+            );
+        }
+    }
 
     #[test]
     fn only_literal_lowercase_y_confirms() {
