@@ -1,10 +1,10 @@
 [package]
 name = "anigit"
-version = "1.4.7"
+version = "1.4.8"
 edition = "2021"
 description = "A local-first version control system for tracking anime-watching history, inspired by git."
-license = "MIT"
-authors = []
+license = "GPL-3.0-only"
+authors = ["thesupersupersigma"]
 
 [[bin]]
 name = "anigit"

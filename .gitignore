@@ -1,6 +1,7 @@
 # hi
 brainstorm.md
 prompts/
+scripts/
 
 # === Rust build artifacts ===
 /target/
